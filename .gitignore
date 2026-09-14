@@ -1,0 +1,21 @@
+# Virtual environment
+travelmind_env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables / secrets
+.env
+.streamlit/secrets.toml
+
+# Testing
+.pytest_cache/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
