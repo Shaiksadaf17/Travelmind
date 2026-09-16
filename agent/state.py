@@ -12,6 +12,10 @@ class TravelState(TypedDict, total=False):
     preferences: str
     food_preference: str
     priorities: dict[str, str]
+    trip_type: str
+    selected_outbound_flight: dict[str, Any]
+    selected_return_flight: dict[str, Any]
+    selected_flight: dict[str, Any]
 
     user_replan_requested: bool
     user_replan_changes: dict[str, Any]

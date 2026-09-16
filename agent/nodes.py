@@ -456,13 +456,18 @@ def collect_travel_data(
     # --------------------------------------------------
     # 1. Flights
     # --------------------------------------------------
-    flights = search_flights(
-        origin=state["origin"],
-        destination=state["destination"],
-        start_date=state["start_date"],
-        end_date=state["end_date"],
-        travellers=state["travellers"],
-    )
+    selected_flight = state.get("selected_flight") or state.get("selected_outbound_flight")
+    if selected_flight:
+        flights = [selected_flight]
+    else:
+        flights = search_flights(
+            origin=state["origin"],
+            destination=state["destination"],
+            start_date=state["start_date"],
+            end_date=state.get("end_date"),
+            travellers=state["travellers"],
+            trip_type=state.get("trip_type", "Round Trip"),
+        )
 
     persist_tool_query(
         state,
@@ -712,32 +717,6 @@ def create_travel_plan(
         state
     )
 
-    # --------------------------------------------------
-    # TEMPORARY DIAGNOSTIC OUTPUT
-    # --------------------------------------------------
-    print("\n" + "=" * 60)
-    print("TRAVELMIND PLANNER DEBUG")
-    print("=" * 60)
-    print("Origin:", state.get("origin"))
-    print("Destination:", state.get("destination"))
-    print("Dates:", state.get("start_date"), "->", state.get("end_date"))
-    print("Travellers:", state.get("travellers"))
-    print("Budget:", state.get("budget"))
-    print("Food preference:", state.get("food_preference"))
-    print("Flights:", len(state.get("flight_options", [])) if isinstance(state.get("flight_options", []), list) else "NOT LIST")
-    print("Hotels:", len(state.get("hotel_options", [])) if isinstance(state.get("hotel_options", []), list) else "NOT LIST")
-    print("Attractions:", len(state.get("attraction_options", [])) if isinstance(state.get("attraction_options", []), list) else "NOT LIST")
-    print("Restaurants:", len(state.get("restaurant_options", [])) if isinstance(state.get("restaurant_options", []), list) else "NOT LIST")
-    print("Candidates generated:", len(candidates))
-
-    for idx, candidate in enumerate(candidates, 1):
-        print(f"Candidate {idx}: {candidate.get('name')}")
-        print("  Total cost:", candidate.get("total_cost"))
-        print("  Within budget:", candidate.get("within_budget"))
-        print("  Attractions:", len(candidate.get("attractions", [])))
-        print("  Restaurants:", len(candidate.get("restaurants", [])))
-        print("  Itinerary days:", len(candidate.get("daily_itinerary", [])))
-
     state["candidate_plans"] = candidates
 
     # --------------------------------------------------
@@ -763,14 +742,6 @@ def create_travel_plan(
         candidates,
         state,
     )
-
-    print("Selected plan:", best_plan.get("name") if best_plan else None)
-    if best_plan:
-        print("Selected total cost:", best_plan.get("total_cost"))
-        print("Selected score:", best_plan.get("score"))
-    else:
-        print("RESULT: NO FEASIBLE PLAN")
-    print("=" * 60 + "\n")
 
     state["selected_plan"] = best_plan
 
@@ -818,7 +789,35 @@ def create_travel_plan(
                 selected_attractions,
                 state["start_date"],
                 state["end_date"],
-                max_activity_hours=8.0,
+                max_activity_hours=11.0,
+                restaurants=best_plan.get(
+                    "restaurants",
+                    state.get("restaurant_options", []),
+                ),
+                flight=best_plan.get(
+                    "flight",
+                    {},
+                ),
+                hotel=best_plan.get(
+                    "hotel",
+                    {},
+                ),
+                weather=state.get(
+                    "weather_data",
+                    {},
+                ),
+                preferences=state.get(
+                    "preferences",
+                    "",
+                ),
+                food_preference=state.get(
+                    "food_preference",
+                    "No Food Preference",
+                ),
+                travellers=state.get(
+                    "travellers",
+                    1,
+                ),
             )
         )
 

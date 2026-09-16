@@ -50,7 +50,7 @@ def _normalise_food_preference(state: dict[str, Any]) -> str:
 def _select_restaurants(
     restaurants: list[dict[str, Any]],
     state: dict[str, Any],
-    limit: int = 3,
+    limit: int = 12,
 ) -> list[dict[str, Any]]:
     """
     Deterministically rank restaurants/cafes according to
@@ -113,6 +113,16 @@ def _select_restaurants(
 
     return ranked[:limit]
 
+def _trip_days(state: dict[str, Any]) -> int:
+    try:
+        from datetime import date
+        start = date.fromisoformat(str(state["start_date"]))
+        end = date.fromisoformat(str(state["end_date"]))
+        return max(1, (end - start).days + 1)
+    except Exception:
+        return 1
+
+
 def build_candidate_plans(
     state: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -140,7 +150,7 @@ def build_candidate_plans(
     selected_restaurants = _select_restaurants(
         restaurants,
         state,
-        limit=3,
+        limit=12,
     )
 
     budget = float(
@@ -183,7 +193,7 @@ def build_candidate_plans(
     optimised_attractions = (
         optimise_daily_route(
             weather_suitable_attractions,
-            max_hours=8.0,
+            max_hours=11.0,
         )
     )
 
@@ -198,7 +208,7 @@ def build_candidate_plans(
             selected_attractions,
             state["start_date"],
             state["end_date"],
-            max_activity_hours=8.0,
+            max_activity_hours=11.0,
             restaurants=selected_restaurants,
         )
 
@@ -234,9 +244,7 @@ def build_candidate_plans(
         ) <= 20
     ]
 
-    budget_attractions = budget_attractions[
-        :3
-    ]
+    budget_attractions = budget_attractions[:max(4, _trip_days(state) * 4)]
 
     budget_food = (
         20
@@ -338,9 +346,7 @@ def build_candidate_plans(
         ),
     )
 
-    balanced_attractions = (
-        optimised_attractions[:3]
-    )
+    balanced_attractions = optimised_attractions[:max(4, _trip_days(state) * 4)]
 
     balanced_food = (
         25
@@ -432,9 +438,7 @@ def build_candidate_plans(
         ),
     )
 
-    comfort_attractions = (
-        optimised_attractions[:3]
-    )
+    comfort_attractions = optimised_attractions[:max(4, _trip_days(state) * 4)]
 
     comfort_food = (
         35
@@ -649,3 +653,34 @@ def select_best_plan(
     )
 
     return best_plan
+
+def _is_round_trip(trip_type):
+    """Return True only when the user explicitly selected Round Trip."""
+    return str(trip_type or "Round Trip").strip().lower() in {"round trip", "roundtrip", "return"}
+
+
+def _flight_total_price(flight):
+    """Use a combined round-trip total when supplied; otherwise sum explicit legs."""
+    if not isinstance(flight, dict):
+        return 0.0
+    for key in ("total_price", "price", "total"):
+        try:
+            value = float(flight.get(key))
+            if value:
+                return value
+        except (TypeError, ValueError):
+            pass
+    outbound = flight.get("outbound") or {}
+    inbound = flight.get("return") or flight.get("inbound") or {}
+    total = 0.0
+    for leg in (outbound, inbound):
+        if isinstance(leg, dict):
+            for key in ("price", "total_price", "total"):
+                try:
+                    value = float(leg.get(key))
+                    if value:
+                        total += value
+                        break
+                except (TypeError, ValueError):
+                    pass
+    return total
