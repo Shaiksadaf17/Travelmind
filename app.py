@@ -8,13 +8,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from email.message import EmailMessage
 from html import escape
-from ui.forms import render_trip_form, validate_trip_input
-from database.users import get_user_by_name
-from database.history import get_saved_trips
-from database.trips import mark_trip_as_saved
-from agent.graph import travel_graph
-from database.itineraries import mark_itinerary_as_final, mark_itinerary_as_saved
-from tools.flights import search_flights, search_return_flights, combine_selected_flights
 
 
 # ==================================================
@@ -22,10 +15,59 @@ from tools.flights import search_flights, search_return_flights, combine_selecte
 # ==================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-# Load .env from the app/project directory and current working directory.
-# The second call does not override values already loaded.
+
+# Load local .env
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(Path.cwd() / ".env")
+
+
+# Load Streamlit Cloud secrets
+SECRET_KEYS = [
+    "SUPABASE_URL",
+    "SUPABASE_KEY",
+    "SERPAPI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "SMTP_FROM_EMAIL",
+    "SMTP_USE_SSL",
+]
+
+for key in SECRET_KEYS:
+    if not os.getenv(key):
+        try:
+            if key in st.secrets:
+                os.environ[key] = str(st.secrets[key])
+        except Exception:
+            pass
+
+
+# ==================================================
+# PROJECT IMPORTS
+# ==================================================
+
+from ui.forms import render_trip_form, validate_trip_input
+from database.users import get_user_by_name
+from database.history import get_saved_trips
+from database.trips import mark_trip_as_saved
+from agent.graph import travel_graph
+from database.itineraries import (
+    mark_itinerary_as_final,
+    mark_itinerary_as_saved,
+)
+from tools.flights import (
+    search_flights,
+    search_return_flights,
+    combine_selected_flights,
+)
+
+
+# ==================================================
+# EMAIL HELPERS
+# ==================================================
 
 
 # ==================================================
