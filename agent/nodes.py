@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from agent.llm import llm
 from agent.prompts import SYSTEM_PROMPT
 from agent.state import TravelState
@@ -508,8 +510,6 @@ def collect_travel_data(
 
     # Independent network requests run concurrently.
     # Each request function already returns a structured error response.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     results = {}
     with ThreadPoolExecutor(
         max_workers=min(6, len(fetchers)),
@@ -531,12 +531,12 @@ def collect_travel_data(
                     "data": [],
                 }
 
-    flights = results["flights"]
-    hotels = results["hotels"]
-    attractions = results["attractions"]
-    restaurants = results["restaurants"]
-    weather = results["weather"]
-    route = results["maps"]
+    flights = results.get("flights", {"status": "error", "data": [], "message": "Flights data unavailable."})
+    hotels = results.get("hotels", {"status": "error", "data": [], "message": "Hotels data unavailable."})
+    attractions = results.get("attractions", {"status": "error", "data": [], "message": "Attractions data unavailable."})
+    restaurants = results.get("restaurants", {"status": "error", "data": [], "message": "Restaurants data unavailable."})
+    weather = results.get("weather", {"status": "error", "data": [], "message": "Weather data unavailable."})
+    route = results.get("maps", {"status": "error", "data": [], "message": "Route data unavailable."})
 
     # Persist after collection, keeping database writes controlled.
     tool_inputs = {
