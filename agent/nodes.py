@@ -443,24 +443,19 @@ Do not provide the complete itinerary yet.
 def collect_travel_data(
     state: TravelState,
 ) -> TravelState:
-    """
-    Collect travel information from all available tools.
-
-    Tools are allowed to return raw lists/dicts. Internally we keep those
-    raw values in state because the planning layer expects lists, while
-    database persistence uses _tool_result_parts() for a consistent shape.
-    """
+    """Collect independent travel data concurrently to reduce latency."""
 
     state = ensure_trip_and_run(state)
 
-    # --------------------------------------------------
-    # 1. Flights
-    # --------------------------------------------------
-    selected_flight = state.get("selected_flight") or state.get("selected_outbound_flight")
-    if selected_flight:
-        flights = [selected_flight]
-    else:
-        flights = search_flights(
+    selected_flight = (
+        state.get("selected_flight")
+        or state.get("selected_outbound_flight")
+    )
+
+    def fetch_flights():
+        if selected_flight:
+            return [selected_flight]
+        return search_flights(
             origin=state["origin"],
             destination=state["destination"],
             start_date=state["start_date"],
@@ -469,122 +464,127 @@ def collect_travel_data(
             trip_type=state.get("trip_type", "Round Trip"),
         )
 
-    persist_tool_query(
-        state,
-        "flights",
-        {
+    def fetch_hotels():
+        return search_hotels(
+            destination=state["destination"],
+            start_date=state["start_date"],
+            end_date=state["end_date"],
+            travellers=state["travellers"],
+        )
+
+    def fetch_attractions():
+        return search_attractions(
+            destination=state["destination"],
+            preferences=state.get("preferences", ""),
+        )
+
+    def fetch_restaurants():
+        return search_restaurants(
+            destination=state["destination"],
+            preferences=state.get("preferences", ""),
+        )
+
+    def fetch_weather():
+        return get_weather(
+            destination=state["destination"],
+            start_date=state["start_date"],
+            end_date=state["end_date"],
+        )
+
+    def fetch_route():
+        return get_route(
+            origin=state["origin"],
+            destination=state["destination"],
+        )
+
+    fetchers = {
+        "flights": fetch_flights,
+        "hotels": fetch_hotels,
+        "attractions": fetch_attractions,
+        "restaurants": fetch_restaurants,
+        "weather": fetch_weather,
+        "maps": fetch_route,
+    }
+
+    # Independent network requests run concurrently.
+    # Each request function already returns a structured error response.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results = {}
+    with ThreadPoolExecutor(
+        max_workers=min(6, len(fetchers)),
+        thread_name_prefix="travel-api",
+    ) as executor:
+        futures = {
+            executor.submit(fn): name
+            for name, fn in fetchers.items()
+        }
+
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                results[name] = future.result()
+            except Exception as exc:
+                results[name] = {
+                    "status": "error",
+                    "message": f"{name} request failed: {exc}",
+                    "data": [],
+                }
+
+    flights = results["flights"]
+    hotels = results["hotels"]
+    attractions = results["attractions"]
+    restaurants = results["restaurants"]
+    weather = results["weather"]
+    route = results["maps"]
+
+    # Persist after collection, keeping database writes controlled.
+    tool_inputs = {
+        "flights": {
             "origin": state["origin"],
             "destination": state["destination"],
             "start_date": state["start_date"],
             "end_date": state["end_date"],
             "travellers": state["travellers"],
         },
-        flights,
-    )
-
-    # --------------------------------------------------
-    # 2. Hotels
-    # --------------------------------------------------
-    hotels = search_hotels(
-        destination=state["destination"],
-        start_date=state["start_date"],
-        end_date=state["end_date"],
-        travellers=state["travellers"],
-    )
-
-    persist_tool_query(
-        state,
-        "hotels",
-        {
+        "hotels": {
             "destination": state["destination"],
             "start_date": state["start_date"],
             "end_date": state["end_date"],
             "travellers": state["travellers"],
         },
-        hotels,
-    )
-
-    # --------------------------------------------------
-    # 3. Attractions
-    # --------------------------------------------------
-    attractions = search_attractions(
-        destination=state["destination"],
-        preferences=state.get("preferences", ""),
-    )
-
-    persist_tool_query(
-        state,
-        "attractions",
-        {
+        "attractions": {
             "destination": state["destination"],
             "preferences": state.get("preferences", ""),
         },
-        attractions,
-    )
-
-    # --------------------------------------------------
-    # 4. Restaurants
-    # --------------------------------------------------
-    restaurants = search_restaurants(
-        destination=state["destination"],
-        preferences=state.get("preferences", ""),
-    )
-
-    persist_tool_query(
-        state,
-        "restaurants",
-        {
+        "restaurants": {
             "destination": state["destination"],
             "preferences": state.get("preferences", ""),
             "food_preference": state.get(
-                "food_preference",
-                "No Food Preference",
+                "food_preference", "No Food Preference"
             ),
         },
-        restaurants,
-    )
-
-    # --------------------------------------------------
-    # 5. Weather
-    # --------------------------------------------------
-    weather = get_weather(
-        destination=state["destination"],
-        start_date=state["start_date"],
-        end_date=state["end_date"],
-    )
-
-    persist_tool_query(
-        state,
-        "weather",
-        {
+        "weather": {
             "destination": state["destination"],
             "start_date": state["start_date"],
             "end_date": state["end_date"],
         },
-        weather,
-    )
-
-    # --------------------------------------------------
-    # 6. Route
-    # --------------------------------------------------
-    route = get_route(
-        origin=state["origin"],
-        destination=state["destination"],
-    )
-
-    persist_tool_query(
-        state,
-        "maps",
-        {
+        "maps": {
             "origin": state["origin"],
             "destination": state["destination"],
         },
-        route,
-    )
+    }
 
-    # --------------------------------------------------
-    # Keep complete raw responses
-    # --------------------------------------------------
+    for name, result in (
+        ("flights", flights),
+        ("hotels", hotels),
+        ("attractions", attractions),
+        ("restaurants", restaurants),
+        ("weather", weather),
+        ("maps", route),
+    ):
+        persist_tool_query(state, name, tool_inputs[name], result)
+
     state["tool_results"] = {
         "flights": flights,
         "hotels": hotels,
@@ -594,9 +594,6 @@ def collect_travel_data(
         "maps": route,
     }
 
-    # --------------------------------------------------
-    # Keep planning-layer data in the format expected by planner.py
-    # --------------------------------------------------
     _, flight_data, flight_message = _tool_result_parts(flights)
     _, hotel_data, hotel_message = _tool_result_parts(hotels)
     _, attraction_data, attraction_message = _tool_result_parts(attractions)
@@ -604,94 +601,54 @@ def collect_travel_data(
     _, weather_data, weather_message = _tool_result_parts(weather)
     _, route_data, route_message = _tool_result_parts(route)
 
-    state["flight_options"] = (
-        flight_data if isinstance(flight_data, list) else []
-    )
-    state["hotel_options"] = (
-        hotel_data if isinstance(hotel_data, list) else []
-    )
+    state["flight_options"] = flight_data if isinstance(flight_data, list) else []
+    state["hotel_options"] = hotel_data if isinstance(hotel_data, list) else []
     state["attraction_options"] = (
         attraction_data if isinstance(attraction_data, list) else []
     )
     state["restaurant_options"] = (
         restaurant_data if isinstance(restaurant_data, list) else []
     )
-
     state["weather_data"] = (
-        weather_data
-        if isinstance(weather_data, (dict, list))
-        else {}
+        weather_data if isinstance(weather_data, (dict, list)) else {}
     )
-
     state["route_data"] = (
-        route_data
-        if isinstance(route_data, (dict, list))
-        else {}
+        route_data if isinstance(route_data, (dict, list)) else {}
     )
 
-    # --------------------------------------------------
-    # Data quality
-    # --------------------------------------------------
-    flight_status, _, _ = _tool_result_parts(flights)
-    hotel_status, _, _ = _tool_result_parts(hotels)
-    attraction_status, _, _ = _tool_result_parts(attractions)
-    restaurant_status, _, _ = _tool_result_parts(restaurants)
-    weather_status, _, _ = _tool_result_parts(weather)
-    route_status, _, _ = _tool_result_parts(route)
-
-    state["data_quality"] = {
-        "flights": flight_status,
-        "hotels": hotel_status,
-        "attractions": attraction_status,
-        "restaurants": restaurant_status,
-        "weather": weather_status,
-        "maps": route_status,
+    statuses = {
+        "flights": _tool_result_parts(flights)[0],
+        "hotels": _tool_result_parts(hotels)[0],
+        "attractions": _tool_result_parts(attractions)[0],
+        "restaurants": _tool_result_parts(restaurants)[0],
+        "weather": _tool_result_parts(weather)[0],
+        "maps": _tool_result_parts(route)[0],
+    }
+    messages = {
+        "flights": flight_message,
+        "hotels": hotel_message,
+        "attractions": attraction_message,
+        "restaurants": restaurant_message,
+        "weather": weather_message,
+        "maps": route_message,
     }
 
-    # --------------------------------------------------
-    # Agent trace
-    # --------------------------------------------------
-    add_trace(
-        state,
-        "collect_flight_data",
-        flight_status,
-        flight_message,
-    )
+    state["data_quality"] = statuses
 
-    add_trace(
-        state,
-        "collect_hotel_data",
-        hotel_status,
-        hotel_message,
-    )
-
-    add_trace(
-        state,
-        "collect_attraction_data",
-        attraction_status,
-        attraction_message,
-    )
-
-    add_trace(
-        state,
-        "collect_restaurant_data",
-        restaurant_status,
-        restaurant_message,
-    )
-
-    add_trace(
-        state,
-        "collect_weather_data",
-        weather_status,
-        weather_message,
-    )
-
-    add_trace(
-        state,
-        "collect_route_data",
-        route_status,
-        route_message,
-    )
+    for name in (
+        "flights",
+        "hotels",
+        "attractions",
+        "restaurants",
+        "weather",
+        "maps",
+    ):
+        add_trace(
+            state,
+            f"collect_{'route' if name == 'maps' else name[:-1] if name.endswith('s') else name}_data",
+            statuses[name],
+            messages[name],
+        )
 
     return state
 
