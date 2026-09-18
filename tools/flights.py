@@ -396,7 +396,7 @@ def search_flights(
         response = requests.get(
             "https://serpapi.com/search.json",
             params=params,
-            timeout=30,
+            timeout=(5, 15),
         )
 
         response.raise_for_status()
@@ -734,7 +734,7 @@ def search_return_flights(
         response = requests.get(
             "https://serpapi.com/search.json",
             params=params,
-            timeout=30,
+            timeout=(5, 15),
         )
         response.raise_for_status()
         data = response.json()

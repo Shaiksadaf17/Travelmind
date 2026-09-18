@@ -24,7 +24,7 @@ def geocode_location(location: str) -> dict[str, Any]:
         response = requests.get(
             "https://geocoding-api.open-meteo.com/v1/search",
             params=params,
-            timeout=30,
+            timeout=(5, 15),
         )
 
         response.raise_for_status()
@@ -168,7 +168,7 @@ def get_weather(
         response = requests.get(
             "https://api.open-meteo.com/v1/forecast",
             params=params,
-            timeout=30,
+            timeout=(5, 15),
         )
 
         response.raise_for_status()

@@ -151,7 +151,7 @@ def search_restaurants(
                 "hl": "en",
                 "gl": "uk",
             },
-            timeout=30,
+            timeout=(5, 15),
         )
 
         response.raise_for_status()
