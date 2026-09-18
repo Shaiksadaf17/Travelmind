@@ -929,7 +929,7 @@ if st.session_state.flight_selection_stage != "idle":
         st.info(
             "🤖 TravelMind will now evaluate the complete trip — flights, hotel, food, "
             "activities and constraints — before confirming feasibility. "
-            "Click **PLAN MY TRIP** below to continue."
+            "Click **GENERATE TRAVEL PLAN** below to continue."
         )
 
     elif st.session_state.flight_selection_stage == "outbound":
@@ -972,8 +972,14 @@ col1, col2 = st.columns(2)
 
 with col1:
 
+    plan_button_label = (
+        "🔍 SEARCH TRAVEL OPTIONS"
+        if st.session_state.flight_selection_stage == "idle"
+        else "✨ GENERATE TRAVEL PLAN"
+    )
+
     plan_clicked = st.button(
-        "✨ PLAN MY TRIP",
+        plan_button_label,
         use_container_width=True,
     )
 
